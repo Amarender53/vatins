@@ -12,6 +12,8 @@ from fpdf import FPDF
 from langdetect import detect
 from keybert import KeyBERT
 
+st.set_page_config(layout="wide")
+st.title("\U0001F4FA YouTube Intelligence Dashboard")
 # Setup
 nltk.download('punkt')
 sentiment_pipeline = pipeline("sentiment-analysis")
@@ -25,8 +27,6 @@ youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 client = MongoClient("mongodb://localhost:27017/")
 db = client["youtube_data"]
 
-st.set_page_config(layout="wide")
-st.title("\U0001F4FA YouTube Intelligence Dashboard")
 
 def get_channel_info(channel_id):
     try:
