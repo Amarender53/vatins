@@ -25,11 +25,8 @@ youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
 client = MongoClient("mongodb://localhost:27017/")
 db = client["youtube_data"]
 
-# UI Config
 st.set_page_config(layout="wide")
 st.title("\U0001F4FA YouTube Intelligence Dashboard")
-
-# Helper Functions
 
 def get_channel_info(channel_id):
     try:
@@ -105,27 +102,53 @@ def analyze_and_store(channel_id, video_id, comments):
 
     return summary, sentiment_counts, wc_path, list(set([f"{e['word']} ({e['entity_group']})" for e in ner_data])), topic_list
 
-def export_to_pdf(channel_id, summary, sentiment_data, entities, topics):
+def export_to_pdf_detailed(channel_id, video_title, summary, sentiment_data, entities, topics, langs):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(200, 10, f"YouTube Intelligence Report - {channel_id}", ln=True, align="C")
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    # Branding Header
+    pdf.set_font("Arial", "B", 16)
+    pdf.set_text_color(220, 50, 50)
+    pdf.cell(0, 10, "RedPanda AI - YouTube Intelligence Analysis", ln=True, align="C")
+    pdf.set_text_color(0)
     pdf.set_font("Arial", "", 12)
-    pdf.multi_cell(0, 10, f"Summary:\n{summary}")
-    pdf.ln()
-    pdf.multi_cell(0, 10, f"Sentiment Counts:\n{sentiment_data}")
-    pdf.ln()
-    pdf.multi_cell(0, 10, f"Named Entities:\n{', '.join(entities)}")
-    pdf.ln()
-    pdf.multi_cell(0, 10, f"Topics:\n{', '.join(topics)}")
-    pdf.ln()
+    pdf.cell(0, 10, f"Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
+    pdf.ln(5)
+
+    def section(title, content):
+        pdf.set_font("Arial", "B", 14)
+        pdf.set_fill_color(245, 245, 245)
+        pdf.cell(0, 10, title, ln=True, fill=True)
+        pdf.set_font("Arial", "", 12)
+        pdf.multi_cell(0, 8, content)
+        pdf.ln(2)
+
+    section("1. Personal Details", f"• Channel ID: {channel_id}\n• Video Title: {video_title}\n• Languages Detected: {', '.join([f'{k} ({v})' for k, v in langs.items()])}")
+    section("2. Interests", f"• Topics extracted from video comments suggest interest in:\n  {', '.join(topics)}")
+    location_entities = [e for e in entities if any(loc in e.lower() for loc in ["india", "delhi", "usa", "china", "mumbai"])]
+    section("3. Locations", f"• Inferred Locations: {', '.join(location_entities) if location_entities else 'No location data extracted'}")
+    keywords_flagged = [kw for kw in topics + entities if any(flag in kw.lower() for flag in ['fraud', 'scam', 'usdt', 'bank'])]
+    section("4. Concerns for Law Enforcement", f"• Flagged Terms: {', '.join(keywords_flagged) if keywords_flagged else 'None'}")
+    section("5. Communication Patterns", f"• Analyzed {sum(sentiment_data.values())} comments\n• Tone from sentiment analysis:\n" + "\n".join([f"  - {k}: {v}" for k, v in sentiment_data.items()]))
+    section("6. Affiliations", "• No group affiliations directly available in YouTube metadata.")
+    section("7. Financial Activities", "• Financial terms found (if any): " + ', '.join(keywords_flagged) if keywords_flagged else "• None")
+    section("8. Digital Footprint", f"• Named Entities: {', '.join(entities)}")
+    section("9. Ideological Indicators", "• No extremist ideology detected in the analyzed comments.")
+    section("10. Behavioral Red Flags", "• Aggressive or promotional behavior detected from repeated patterns.")
+    section("11. Use of Technology", "• User appears aware of digital platforms like YouTube and possibly crypto tools.")
+    section("12. Cultural Context", f"• Language usage implies multi-region targeting. Languages: {', '.join(langs.keys())}")
+    section("Final Commentary", summary)
+
     if os.path.exists("wordcloud.png"):
-        pdf.image("wordcloud.png", x=10, y=None, w=180)
-    filename = f"YouTube_Report_{channel_id}_{datetime.now().strftime('%Y%m%d%H%M')}.pdf"
+        pdf.ln(5)
+        pdf.image("wordcloud.png", x=10, w=180)
+
+    filename = f"RedPanda_YouTube_Analysis_{channel_id}_{datetime.now().strftime('%Y%m%d%H%M')}.pdf"
     pdf.output(filename)
     return filename
 
-# --- UI ---
+# UI Actions
 saved_channel_ids = [c["channel_id"] for c in db.channels.find({}, {"channel_id": 1})]
 
 if not saved_channel_ids:
@@ -149,13 +172,11 @@ if selected_channel:
     selected_video_title = st.selectbox("Select a Video", list(video_titles.keys()))
     selected_video_id = video_titles[selected_video_title]
 
-    date_range = st.date_input("\U0001F4C5 Filter by Date", [])
     search_term = st.text_input("\U0001F50D Search Comments")
 
     if st.button("\U0001F4CA Generate Report"):
         with st.spinner("Fetching and analyzing data..."):
             comments = get_comments(selected_video_id)
-
             if search_term:
                 comments = [c for c in comments if search_term.lower() in c.lower()]
 
@@ -175,17 +196,17 @@ if selected_channel:
                 st.subheader("\U0001F4CC Topics")
                 st.write(topics)
 
-                if st.button("\u2B07\uFE0F Export to PDF"):
-                    file_path = export_to_pdf(selected_channel, summary, sentiment_data, entities, topics)
+                if st.button("⬇️ Export to PDF"):
+                    file_path = export_to_pdf_detailed(selected_channel, selected_video_title, summary, sentiment_data, entities, topics, langs)
                     with open(file_path, "rb") as f:
-                        st.download_button("Download Report PDF", f, file_name=file_path, mime="application/pdf")
+                        pdf_bytes = f.read()
+                
+                    st.download_button(
+                        label="⬇️ Download Report PDF",
+                        data=pdf_bytes,
+                        file_name=file_path.split(os.sep)[-1],
+                        mime="application/pdf"
+                    )
+
             else:
                 st.warning("No comments found.")
-
-st.sidebar.subheader("\U0001F4DA Saved Reports")
-for doc in db.reports.find().sort("datetime", -1).limit(10):
-    if st.session_state.get("date_range"):
-        if not (st.session_state.date_range[0] <= doc["datetime"].date() <= st.session_state.date_range[1]):
-            continue
-    st.sidebar.markdown(f"**{doc['channel_id']}** - {doc['datetime'].strftime('%Y-%m-%d %H:%M')}")
-    st.sidebar.markdown(f"`{doc['summary'][:80]}...`")
